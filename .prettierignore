@@ -1,0 +1,7 @@
+node_modules
+.next
+coverage
+supabase/migrations
+next-env.d.ts
+pnpm-lock.yaml
+package-lock.json

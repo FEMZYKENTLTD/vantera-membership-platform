@@ -1,0 +1,52 @@
+name: Supabase migrations & seed
+
+# Applies pending SQL migrations to the PRODUCTION Supabase project whenever
+# supabase/** lands on main, then applies the idempotent seed. Migrations are
+# tracked by the Supabase CLI in the supabase_migrations schema, so each file
+# runs exactly once — manual SQL-editor runs are no longer needed.
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/**']
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Apply migrations to Supabase
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+
+      - name: Link project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+      - name: Push pending migrations
+        run: supabase db push
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+      - name: Apply idempotent seed (permission catalog, tiers, settings)
+        # seed.sql is written with `on conflict ... do nothing` — safe to re-run.
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          PGPASSWORD="$SUPABASE_DB_PASSWORD" psql \
+            "host=db.${SUPABASE_PROJECT_REF}.supabase.co user=postgres dbname=postgres port=5432 sslmode=require" \
+            -v ON_ERROR_STOP=1 -f supabase/seed.sql
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
